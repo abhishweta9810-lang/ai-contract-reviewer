@@ -29,27 +29,80 @@ def _audit(record: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def extract_text_from_pdf(path: str) -> Dict[str, Any]:
-    """Extract text from a PDF file using pdfminer.six.
+    """Extract text from a PDF file using pdfminer.six with OCR fallback.
 
     Returns result={"text": str, "pages": int}
     """
     text = ""
-    try:
-        text = extract_text(path)
-    except Exception as e:
-        text = f"""(error extracting text: {e})"""
-
-    # crude page guess: count '/Page' occurrences or fallback to 1
     pages = 1
+    extraction_method = "failed"
+    
     try:
-        with open(path, "rb") as f:
-            raw = f.read()
-            pages = raw.count(b"/Type /Page") or 1
-    except Exception:
+        # Try pdfminer first for text-based PDFs
+        text = extract_text(path)
+        if text and len(text.strip()) > 20:  # Only use if we got meaningful text
+            extraction_method = "pdfminer"
+            try:
+                with open(path, "rb") as f:
+                    raw = f.read()
+                    pages = raw.count(b"/Type /Page") or 1
+            except Exception:
+                pages = 1
+        else:
+            text = ""  # Reset for fallback
+    except Exception as pdfminer_err:
+        text = ""
+    
+    # If pdfminer failed or got minimal text, try OCR
+    if not text or len(text.strip()) < 20:
+        try:
+            # Try pdf2image + pytesseract for OCR
+            try:
+                from pdf2image import convert_from_path
+                import pytesseract
+                
+                images = convert_from_path(path, dpi=150)
+                pages = len(images)
+                text_parts = []
+                for idx, img in enumerate(images):
+                    try:
+                        ocr_text = pytesseract.image_to_string(img, lang='eng')
+                        if ocr_text.strip():
+                            text_parts.append(f"--- Page {idx+1} ---\n{ocr_text}")
+                    except Exception:
+                        pass
+                
+                if text_parts:
+                    text = "\n".join(text_parts)
+                    extraction_method = "ocr"
+                else:
+                    text = ""
+            except ImportError:
+                # OCR libraries not available, skip
+                pass
+        except Exception:
+            pass
+    
+    # If still no text, try reading as plain text
+    if not text:
+        try:
+            with open(path, "r", encoding="utf-8", errors="ignore") as f:
+                file_text = f.read()
+                if file_text.strip():
+                    text = file_text
+                    extraction_method = "plaintext"
+                    pages = 1
+        except Exception:
+            pass
+    
+    # Last resort fallback
+    if not text:
+        text = "(Unable to extract text from file - file may be corrupted or in unsupported format)"
         pages = 1
+        extraction_method = "failed"
 
     out = {"text": text, "pages": pages}
-    return {"result": out, "audit": _audit({"tool": "extract_text_from_pdf", "path": path, "pages": pages})}
+    return {"result": out, "audit": _audit({"tool": "extract_text_from_pdf", "path": path, "pages": pages, "method": extraction_method, "text_length": len(text)})}
 
 
 def split_into_clauses(text: str) -> Dict[str, Any]:
@@ -110,7 +163,7 @@ def detect_entities(text: str) -> Dict[str, Any]:
 
 
 def validate_rule(name: str, context: Dict[str, Any]) -> Dict[str, Any]:
-    """Simple rule evaluation. Supports `date_consistency` for demo."""
+    """Contract validation rules with actual analysis of content."""
     if name == "date_consistency":
         dates = context.get("dates") or []
         parsed = []
@@ -142,7 +195,90 @@ def validate_rule(name: str, context: Dict[str, Any]) -> Dict[str, Any]:
 
         details = {"rule": name, "ok": ok, "explanation": explanation, "parsed_dates": [d.isoformat() for d in parsed]}
         return {"result": details, "audit": _audit({"tool": "validate_rule", "rule": name, "ok": ok})}
-
+    
+    elif name == "liability_clause":
+        text = context.get("text", "").lower()
+        has_liability = "liability" in text
+        has_limitation = "limitation" in text
+        has_indemnity = "indemnif" in text
+        
+        ok = has_liability or has_limitation
+        explanation = []
+        if has_liability:
+            explanation.append("✓ Liability clause found")
+        else:
+            explanation.append("⚠ No explicit liability clause")
+        if has_limitation:
+            explanation.append("✓ Limitation of liability present")
+        else:
+            explanation.append("⚠ No liability limitation found")
+        if has_indemnity:
+            explanation.append("✓ Indemnification clause detected")
+            
+        details = {"rule": name, "ok": ok, "explanation": "; ".join(explanation), "findings": {"liability": has_liability, "limitation": has_limitation, "indemnity": has_indemnity}}
+        return {"result": details, "audit": _audit({"tool": "validate_rule", "rule": name, "ok": ok})}
+    
+    elif name == "confidentiality":
+        text = context.get("text", "").lower()
+        has_confidentiality = "confidential" in text or "proprietary" in text or "secret" in text
+        has_disclosure = "disclose" in text or "disclosure" in text
+        has_term = "year" in text or "month" in text
+        
+        ok = has_confidentiality
+        explanation = []
+        if has_confidentiality:
+            explanation.append("✓ Confidentiality obligations defined")
+        else:
+            explanation.append("⚠ No confidentiality clause found")
+        if has_disclosure:
+            explanation.append("✓ Permitted disclosure rules present")
+        if has_term:
+            explanation.append("✓ Confidentiality term specified")
+        else:
+            explanation.append("⚠ Confidentiality duration unclear")
+            
+        details = {"rule": name, "ok": ok, "explanation": "; ".join(explanation), "findings": {"has_confidentiality": has_confidentiality, "has_disclosure": has_disclosure, "has_term": has_term}}
+        return {"result": details, "audit": _audit({"tool": "validate_rule", "rule": name, "ok": ok})}
+    
+    elif name == "termination":
+        text = context.get("text", "").lower()
+        has_termination = "terminat" in text
+        has_notice = "notice" in text and ("day" in text or "month" in text)
+        has_cause = "cause" in text or "breach" in text
+        
+        ok = has_termination
+        explanation = []
+        if has_termination:
+            explanation.append("✓ Termination clause present")
+        else:
+            explanation.append("⚠ No termination clause")
+        if has_notice:
+            explanation.append("✓ Notice period defined")
+        else:
+            explanation.append("⚠ Notice requirements unclear")
+        if has_cause:
+            explanation.append("✓ Termination for cause addressed")
+            
+        details = {"rule": name, "ok": ok, "explanation": "; ".join(explanation), "findings": {"has_termination": has_termination, "has_notice": has_notice, "has_cause": has_cause}}
+        return {"result": details, "audit": _audit({"tool": "validate_rule", "rule": name, "ok": ok})}
+    
+    elif name == "indemnification":
+        text = context.get("text", "").lower()
+        has_indemnity = "indemnif" in text or "hold harmless" in text
+        has_insurance = "insur" in text
+        
+        ok = has_indemnity
+        explanation = []
+        if has_indemnity:
+            explanation.append("✓ Indemnification obligation found")
+        else:
+            explanation.append("⚠ No indemnification clause")
+        if has_insurance:
+            explanation.append("✓ Insurance requirements mentioned")
+            
+        details = {"rule": name, "ok": ok, "explanation": "; ".join(explanation), "findings": {"has_indemnity": has_indemnity, "has_insurance": has_insurance}}
+        return {"result": details, "audit": _audit({"tool": "validate_rule", "rule": name, "ok": ok})}
+    
     # default: unknown rule
     details = {"rule": name, "ok": False, "explanation": "unknown rule"}
     return {"result": details, "audit": _audit({"tool": "validate_rule", "rule": name, "ok": False})}
@@ -176,7 +312,7 @@ def suggest_corrections(issue: Dict[str, Any]) -> Dict[str, Any]:
     return {"result": {"suggestion": suggestion}, "audit": _audit({"tool": "suggest_corrections", "issue": issue_id})}
 
 
-def generate_summary_pdf(summary: Dict[str, Any], out_path: str) -> Dict[str, Any]:
+def generate_summary_pdf(summary: Dict[str, Any], out_path: str = None) -> Dict[str, Any]:
     """Render a summary PDF that includes a textual summary page and one thumbnail per event
     with bounding boxes drawn.
 
@@ -184,10 +320,21 @@ def generate_summary_pdf(summary: Dict[str, Any], out_path: str) -> Dict[str, An
     """
     events = summary.get("events") or summary.get("checks") or []
     # First page: textual summary
-    lines = ["Compliance Violation Report", "=", f"Total events: {len(events)}", ""]
+    lines = ["Compliance Report", "=", f"Total items: {len(events)}", ""]
     for i, ev in enumerate(events):
-        det = ev.get("detection") if isinstance(ev, dict) else ev
-        lines.append(f"{i+1}. {det.get('type')} score={det.get('score')} frame_index={det.get('frame_index')}")
+        if isinstance(ev, dict):
+            # Handle video violations with 'detection' field
+            det = ev.get("detection")
+            if det:
+                lines.append(f"{i+1}. {det.get('type')} score={det.get('score')} frame_index={det.get('frame_index')}")
+            else:
+                # Handle contract review checks (no detection field)
+                rule_id = ev.get("rule_id", "N/A")
+                severity = ev.get("severity", "INFO")
+                description = ev.get("description", ev.get("text", "Check performed"))
+                lines.append(f"{i+1}. [{rule_id}] {severity}: {description[:80]}")
+        else:
+            lines.append(f"{i+1}. {str(ev)[:100]}")
 
     body = "\n".join(lines)
 
@@ -203,25 +350,42 @@ def generate_summary_pdf(summary: Dict[str, Any], out_path: str) -> Dict[str, An
         d.multiline_text((50, 50), body, fill=(0, 0, 0), font=font)
         pages.append(text_img)
 
-        # For each event, create a thumbnail with bbox
+        # For each event, create a thumbnail with bbox (for video) or detail page (for contract)
         for ev in events:
-            det = ev.get("detection")
-            frame_path = det.get("frame")
-            bbox = det.get("bbox")
-            try:
-                img = Image.open(frame_path).convert("RGB")
-                draw = ImageDraw.Draw(img)
-                if bbox and len(bbox) == 4:
-                    draw.rectangle(bbox, outline="red", width=4)
-                # Resize to fit page width
-                img.thumbnail((1100, 1400))
-                pages.append(img)
-            except Exception:
-                # If frame not available, create placeholder
-                ph = Image.new("RGB", (1200, 800), color=(240, 240, 240))
-                pd = ImageDraw.Draw(ph)
-                pd.text((50, 50), f"Frame not available: {frame_path}", fill=(0, 0, 0), font=font)
-                pages.append(ph)
+            if isinstance(ev, dict):
+                det = ev.get("detection")
+                if det and "frame" in det:
+                    # Video violation with frame thumbnail
+                    frame_path = det.get("frame")
+                    bbox = det.get("bbox")
+                    try:
+                        img = Image.open(frame_path).convert("RGB")
+                        draw = ImageDraw.Draw(img)
+                        if bbox and len(bbox) == 4:
+                            draw.rectangle(bbox, outline="red", width=4)
+                        # Resize to fit page width
+                        img.thumbnail((1100, 1400))
+                        pages.append(img)
+                    except Exception:
+                        # If frame not available, create placeholder
+                        ph = Image.new("RGB", (1200, 800), color=(240, 240, 240))
+                        pd = ImageDraw.Draw(ph)
+                        pd.text((50, 50), f"Frame not available", fill=(0, 0, 0), font=font)
+                        pages.append(ph)
+                elif "clause_id" in ev or "rule_id" in ev:
+                    # Contract review check - create detail page
+                    detail_lines = [
+                        f"Check: {ev.get('rule_id', 'N/A')}",
+                        f"Severity: {ev.get('severity', 'INFO')}",
+                        "",
+                        f"Description: {ev.get('description', ev.get('text', 'N/A'))[:200]}",
+                        "",
+                        f"Clause: {ev.get('clause_id', 'N/A')}"
+                    ]
+                    detail_page = Image.new("RGB", (1200, 800), color=(245, 245, 245))
+                    dd = ImageDraw.Draw(detail_page)
+                    dd.multiline_text((50, 50), "\n".join(detail_lines), fill=(0, 0, 0), font=font)
+                    pages.append(detail_page)
 
         # Ensure output directory exists
         os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)

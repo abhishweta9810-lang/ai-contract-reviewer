@@ -4,9 +4,9 @@ import json
 
 BACKEND_URL = st.sidebar.text_input("Backend URL", value="http://127.0.0.1:8000")
 
-st.title("AI Compliance Monitor — Demo UI")
+st.title("AI Contract Reviewer — Demo UI")
 
-uploaded = st.file_uploader("Upload a PDF or MP4 (sample) to run the pipeline (async)", type=["pdf", "mp4", "mov", "mkv", "avi"])
+uploaded = st.file_uploader("Upload a PDF contract to review (async)", type=["pdf", "txt"])
 
 if uploaded is not None:
     with st.spinner("Uploading and starting background job..."):

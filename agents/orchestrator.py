@@ -47,17 +47,42 @@ class Orchestrator:
 
         entities = r3.get("result", {})
 
-        # 4. Run validations (example rule checks)
+        # 4. Run validations (meaningful contract checks)
         checks = []
+        
+        # Check date consistency
         r4 = call_tool("validate_rule", {"name": "date_consistency", "context": entities})
         self.calls.append({"tool": "validate_rule", "resp": r4})
         report["pipeline"].append({"step": "validate_rule_date_consistency", "resp": r4})
         checks.append(r4.get("result"))
+        
+        # Check liability clauses
+        r4b = call_tool("validate_rule", {"name": "liability_clause", "context": {"text": text}})
+        self.calls.append({"tool": "validate_rule_liability", "resp": r4b})
+        report["pipeline"].append({"step": "validate_rule_liability", "resp": r4b})
+        checks.append(r4b.get("result"))
+        
+        # Check confidentiality
+        r4c = call_tool("validate_rule", {"name": "confidentiality", "context": {"text": text}})
+        self.calls.append({"tool": "validate_rule_confidentiality", "resp": r4c})
+        report["pipeline"].append({"step": "validate_rule_confidentiality", "resp": r4c})
+        checks.append(r4c.get("result"))
+        
+        # Check termination clauses
+        r4d = call_tool("validate_rule", {"name": "termination", "context": {"text": text}})
+        self.calls.append({"tool": "validate_rule_termination", "resp": r4d})
+        report["pipeline"].append({"step": "validate_rule_termination", "resp": r4d})
+        checks.append(r4d.get("result"))
+        
+        # Check indemnification
+        r4e = call_tool("validate_rule", {"name": "indemnification", "context": {"text": text}})
+        self.calls.append({"tool": "validate_rule_indemnification", "resp": r4e})
+        report["pipeline"].append({"step": "validate_rule_indemnification", "resp": r4e})
+        checks.append(r4e.get("result"))
 
         r5 = call_tool("calculate_amounts", {"lines": []})
         self.calls.append({"tool": "calculate_amounts", "resp": r5})
         report["pipeline"].append({"step": "calculate_amounts", "resp": r5})
-        checks.append(r5.get("result"))
 
         # 5. Suggest corrections for any issues (demo uses a placeholder issue)
         issue = {"id": "issue-1", "desc": "placeholder discrepancy"}
