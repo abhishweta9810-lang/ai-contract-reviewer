@@ -1,0 +1,75 @@
+version: '3.8'
+
+services:
+  # MCP Server: exposes tools via HTTP
+  mcp-server:
+    build:
+      context: .
+      dockerfile: Dockerfile.mcp
+    container_name: ai-contract-mcp
+    ports:
+      - "8001:8001"
+    environment:
+      - PYTHONUNBUFFERED=1
+    volumes:
+      - ./mcp:/app/mcp
+      - ./mcp/audit.log:/app/mcp/audit.log
+      - /tmp:/tmp
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+    command: python3 -m uvicorn mcp.server:app --host 0.0.0.0 --port 8001
+
+  # FastAPI Backend: upload, async job management, downloads
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    container_name: ai-contract-backend
+    ports:
+      - "8000:8000"
+    depends_on:
+      mcp-server:
+        condition: service_healthy
+    environment:
+      - PYTHONUNBUFFERED=1
+      - MCP_SERVER_URL=http://mcp-server:8001
+    volumes:
+      - ./backend:/app/backend
+      - ./agents:/app/agents
+      - ./demo:/app/demo
+      - /tmp:/tmp
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+    command: python3 -m uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload
+
+  # Optional: Streamlit UI
+  streamlit:
+    build:
+      context: .
+      dockerfile: Dockerfile.streamlit
+    container_name: ai-contract-ui
+    ports:
+      - "8501:8501"
+    depends_on:
+      - backend
+    environment:
+      - PYTHONUNBUFFERED=1
+      - BACKEND_URL=http://backend:8000
+    volumes:
+      - ./frontend:/app/frontend
+      - /tmp:/tmp
+    command: streamlit run frontend/streamlit_app.py --server.port 8501 --server.address 0.0.0.0
+
+volumes:
+  mcp_audit:
+  tmp_files:
+
+networks:
+  default:
+    name: ai-contract-network
