@@ -1,0 +1,12 @@
+fastapi
+uvicorn[standard]
+python-multipart
+pydantic
+Pillow
+pytesseract
+pdfminer.six
+requests
+opencv-python
+imageio
+imageio-ffmpeg
+streamlit
