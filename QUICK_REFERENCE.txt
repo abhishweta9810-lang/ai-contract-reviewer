@@ -1,0 +1,214 @@
+📋 QUICK REFERENCE FOR JUDGES
+═══════════════════════════════════════════════════════════════════════════════
+
+🚀 START HERE
+─────────────────────────────────────────────────────────────────────────────
+
+1. Read: README.md
+2. Run:  docker-compose up --build
+3. Wait: 30-60 seconds
+4. Try:  bash JUDGE_DEMO.sh (for copy-paste examples)
+
+
+🌐 ENDPOINTS (After docker-compose up --build)
+─────────────────────────────────────────────────────────────────────────────
+
+Backend API
+  └─ http://localhost:8000
+     └─ /docs                    (Swagger UI - try endpoints here)
+     └─ /health                  (Health check)
+     └─ /upload                  (Sync upload)
+     └─ /upload_async            (Async upload - returns job_id)
+     └─ /status/{job_id}         (Poll job progress)
+     └─ /result/{job_id}         (Get results JSON + PDF path)
+     └─ /download_file           (Download PDF report)
+
+MCP Server
+  └─ http://localhost:8001
+     └─ /health                  (Health check)
+     └─ /run_tool                (Execute tool by name)
+     └─ /audits                  (View immutable audit log)
+
+Streamlit UI
+  └─ http://localhost:8501       (Visual file upload & polling)
+
+
+📍 KEY FILES FOR JUDGES
+─────────────────────────────────────────────────────────────────────────────
+
+README.md
+  • Project overview
+  • Quick start (Docker & manual)
+  • API documentation
+  • Sample curl commands
+  ➜ Start here for context
+
+JUDGE_QUICKSTART.md
+  • 2-minute evaluation guide
+  • Sample API responses
+  • Troubleshooting
+  • Scoring checklist
+  ➜ Read this for evaluation criteria
+
+JUDGE_DEMO.sh
+  • Copy-paste command blocks
+  • No need to type anything
+  ➜ bash JUDGE_DEMO.sh for all examples
+
+docker-compose.yml
+  • Service configuration
+  • Port mappings
+  • Health checks
+  ➜ docker-compose up --build
+
+
+💡 QUICK TEST (Copy & Paste)
+─────────────────────────────────────────────────────────────────────────────
+
+Check System Health
+  curl http://localhost:8000/health
+  curl http://localhost:8001/health
+
+Sync Upload (Quick Test)
+  curl -X POST http://localhost:8000/upload \
+    -F 'file=@demo/sample.mp4' | jq '.events | length'
+  
+  Expected output: 6
+
+View Audit Trail
+  curl http://localhost:8001/audits | jq '.audits | length'
+
+Async Upload Workflow
+  # Step 1: Upload
+  JOB=$(curl -s -X POST http://localhost:8000/upload_async \
+    -F 'file=@demo/sample.mp4' | jq -r '.job_id')
+  
+  # Step 2: Poll
+  curl http://localhost:8000/status/$JOB
+  
+  # Step 3: Get results
+  curl http://localhost:8000/result/$JOB | jq '.result.events | length'
+
+
+✅ EVALUATION CHECKLIST (From JUDGE_QUICKSTART.md)
+─────────────────────────────────────────────────────────────────────────────
+
+☐ Docker Compose starts all services
+☐ /health endpoints return 200
+☐ /upload_async returns job_id
+☐ /status/{job_id} shows progress
+☐ /result/{job_id} returns JSON with events
+☐ PDF report is downloadable
+☐ PDF contains thumbnails with bboxes
+☐ /audits endpoint returns audit log
+☐ Streamlit UI is responsive
+☐ End-to-end: upload → detect → log → report → download
+
+
+📊 WHAT YOU'LL SEE
+─────────────────────────────────────────────────────────────────────────────
+
+Sample Violations (6 total)
+  Frame 0:  missing_helmet (score: 0.92)
+  Frame 15: missing_helmet (score: 0.92)
+  Frame 30: missing_helmet (score: 0.92)
+  Frame 45: missing_helmet (score: 0.92)
+  Frame 60: missing_helmet (score: 0.92)
+  Frame 75: missing_helmet (score: 0.92)
+
+Each violation includes:
+  • Detection (type, score, bbox, frame index)
+  • Reasoning (explanation, severity: high)
+  • Rule (rule_id: PPE-1, description, enforcement)
+  • Event log (timestamp, all metadata)
+
+Audit Trail
+  Every tool call logged with timestamp:
+  - decode_video: 90 frames
+  - run_detector: x90 frames, 6 detections
+  - run_vlm_reasoning: x6 severity assessments
+  - lookup_compliance_rule: x6 rule mappings
+  - save_event_log: x6 event records
+  - generate_report: PDF generated
+
+
+🔧 OPTIONAL: Real YOLOv8 Detection
+─────────────────────────────────────────────────────────────────────────────
+
+By default: Deterministic demo detector (always produces same 6 violations)
+
+To enable real YOLO:
+  1. Download yolov8n.onnx from Ultralytics
+  2. Create models/ folder: mkdir models
+  3. Place: yolov8n.onnx → models/yolov8n.onnx
+  4. Restart MCP: docker-compose restart mcp-server
+
+System will auto-detect and use real model (graceful fallback if absent).
+
+
+🛠️ TROUBLESHOOTING
+─────────────────────────────────────────────────────────────────────────────
+
+Port 8000/8001/8501 in use?
+  pkill -f 'uvicorn\|streamlit'
+  docker-compose down
+  docker-compose up --build
+
+Docker won't build?
+  docker system prune
+  docker-compose up --build --no-cache
+
+Services won't start?
+  docker-compose logs        (see all logs)
+  docker-compose logs mcp    (just MCP)
+  docker-compose logs backend (just backend)
+
+PDF won't download?
+  curl http://localhost:8001/audits | jq '.audits[] | select(.tool=="generate_report")'
+  (Check the out_path in the log)
+
+
+📚 DOCUMENTATION LINKS
+─────────────────────────────────────────────────────────────────────────────
+
+In Repository:
+  • README.md              → Overview & quick start
+  • JUDGE_QUICKSTART.md    → Evaluation guide
+  • JUDGE_DEMO.sh          → Copy-paste commands
+  • DEPLOYMENT_SUMMARY.txt → Technical summary
+  • docs/ARCHITECTURE.md   → System design
+
+API Documentation (After startup):
+  • http://localhost:8000/docs     → Swagger UI
+  • http://localhost:8001/audits   → Audit trail JSON
+
+
+⏱️ TIMING
+─────────────────────────────────────────────────────────────────────────────
+
+Docker startup:       2 minutes
+First result:         3-5 seconds
+Full end-to-end:      10-15 seconds
+
+
+💾 BRANCH INFO
+─────────────────────────────────────────────────────────────────────────────
+
+Repository:     /home/dell/Documents/code/ai-contract-reviewer
+Branch:         feature/async-video-pipeline
+Status:         Ready (clean working tree, all commits pushed)
+
+Latest Commits:
+  • docs: add judge demo script with copy-paste commands
+  • docs: add deployment summary for judges
+  • docs: add .dockerignore and judge quickstart guide
+  • docs: add Docker Compose and judge runbook
+  • feat: async video pipeline with MCP-orchestrated compliance monitoring
+
+
+═══════════════════════════════════════════════════════════════════════════════
+
+                  Questions? See README.md or JUDGE_QUICKSTART.md
+                              Good luck! 🎯
+
+═══════════════════════════════════════════════════════════════════════════════
